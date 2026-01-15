@@ -10,6 +10,7 @@ from utils import dict2namespace, get_runner, namespace2dict
 import torch.multiprocessing as mp
 import torch.distributed as dist
 
+from datasets.dataset import C2vDataset  
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()['__doc__'])

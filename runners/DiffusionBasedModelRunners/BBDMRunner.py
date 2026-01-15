@@ -46,7 +46,7 @@ class c2v_BBDMRunner(DiffusionBaseRunner):
         optimizer = get_optimizer(config.model.BB.optimizer, net.get_parameters())
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
                                                                mode='min',
-                                                               verbose=True,
+                                                               # verbose=True,
                                                                threshold_mode='rel',
                                                                **vars(config.model.BB.lr_scheduler))
         return [optimizer], [scheduler]

@@ -14,24 +14,24 @@ testing:
   save_syn_scans: True
 
 data:
-  dataset_name: 'c2v'
+  dataset_name: 'ulf_to_hf'
   dataset_type: 'c2v'
   dataset_config:
-    img_folder: '/data/to/mri_images'
-    shape_folder: '/data/to/sdf_pial'
-    shape_folder_2: '/data/to/sdf_white'
-    condition_folder: '/data/to/condition1'
-    condition_folder_2: '/data/to/condition2'
-    condition_folder_3: '/data/to/condition3'
-    condition_folder_4: '/data/to/condition4'
+    img_folder: '/teamspace/studios/this_studio/Dataset/HF/HF'  
+    shape_folder: '/teamspace/studios/this_studio/Dataset/ULF-v1/ULF-v1'  
+    shape_folder_2: null
+    condition_folder: null
+    condition_folder_2: null
+    condition_folder_3: null
+    condition_folder_4: null
     input_size: 128
     depth_size: 128
     to_normal: True
   train:
-    batch_size: 2
+    batch_size: 1
     shuffle: True
   val:
-    batch_size: 2
+    batch_size: 1
     shuffle: True
   test:
     batch_size: 1
@@ -41,8 +41,8 @@ model:
   model_name: "c2v" # part of result path
   model_type: "BBDM_c2v" # specify a module
   latent_before_quant_conv: False
-  model_load_path: '/checkpoint/model.pth' # model checkpoint path
-  optim_sche_load_path: '/checkpoint/optim_sche.pth' # optimizer scheduler checkpoint path
+  model_load_path: null # model checkpoint path
+  optim_sche_load_path: null
 
   EMA:
     use_ema: True
@@ -85,8 +85,8 @@ model:
       UNetParams:
         dims: 3
         image_size: 128
-        in_channels: 6 # depending on the number of extra conditions
-        model_channels: 64
+        in_channels: 2 # depending on the number of extra conditions
+        model_channels: 32
         out_channels: 1
         num_res_blocks: 2
         use_fp16: False

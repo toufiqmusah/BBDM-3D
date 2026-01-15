@@ -74,14 +74,15 @@ class C2vDataset(Dataset):
             self.input_folder.append(os.path.join(dataset_config.shape_folder_2 + folder_suffix[stage]))
 
         # if there exist dataset_config.condition_folder, then add it
-        if hasattr(dataset_config, 'condition_folder'):
+        # if there exist dataset_config.condition_folder, then add it
+        if hasattr(dataset_config, 'condition_folder') and dataset_config.condition_folder is not None:
             self.condition_folder = dataset_config.condition_folder + folder_suffix[stage]
             self.condition_folder = [self.condition_folder]
-            if hasattr(dataset_config, 'condition_folder_2'):
+            if hasattr(dataset_config, 'condition_folder_2') and dataset_config.condition_folder_2 is not None:
                 self.condition_folder.append(dataset_config.condition_folder_2 + folder_suffix[stage])
-            if hasattr(dataset_config, 'condition_folder_3'):
+            if hasattr(dataset_config, 'condition_folder_3') and dataset_config.condition_folder_3 is not None:
                 self.condition_folder.append(dataset_config.condition_folder_3 + folder_suffix[stage])
-            if hasattr(dataset_config, 'condition_folder_4'):
+            if hasattr(dataset_config, 'condition_folder_4') and dataset_config.condition_folder_4 is not None:
                 self.condition_folder.append(dataset_config.condition_folder_4 + folder_suffix[stage])
             print('condition_folder: ', self.condition_folder)
         else:
@@ -107,15 +108,23 @@ class C2vDataset(Dataset):
         scan_id = all_data[-1]
 
         # Process all input files in the list
+                # Process all input files in the list
         input_imgs = []
         for input_file in input_files:
             input_img = read_image(input_file, self.scaler, pass_scaler=False)
             input_img = resize_img(input_img, self.input_size, self.input_size, self.depth_size)
             input_imgs.append(input_img)
-        
+
         input_img = np.stack(input_imgs, axis=0)
 
-        input_img = create_cortex_sdf(input_img[0], input_img[1])[np.newaxis, ...]
+        # For ULF to HF, we only have one input, so don't use create_cortex_sdf
+        # Only use create_cortex_sdf if we have 2 inputs (pial and white surfaces)
+        if input_img.shape[0] == 2:
+            input_img = create_cortex_sdf(input_img[0], input_img[1])[np.newaxis, ...]
+        elif input_img.shape[0] == 1:
+            input_img = input_img  # Keep as is for single input
+        else:
+            raise ValueError(f"Expected 1 or 2 input images, got {input_img.shape[0]}")
 
         target_img = read_image(target_file, self.scaler)
         target_img = resize_img(target_img, self.input_size, self.input_size, self.depth_size)
@@ -127,6 +136,7 @@ class C2vDataset(Dataset):
         ])
 
 
+        # Transform each input image separately and concatenate
         input_img = torch.cat([transform(img) for img in input_imgs], dim=0)
         target_img = transform(target_img)
 
