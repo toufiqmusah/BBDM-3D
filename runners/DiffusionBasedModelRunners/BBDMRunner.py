@@ -79,7 +79,7 @@ class c2v_BBDMRunner(DiffusionBaseRunner):
                 self.writer.add_scalar(f'recloss_xy/{stage}', additional_info['recloss_xy'], step)
         return loss
     
-    
+        
     @torch.no_grad()
     def sample(self, net, batch, sample_path, stage='train'):
         sample_path = make_dir(os.path.join(sample_path, f'{stage}_sample'))
@@ -101,20 +101,28 @@ class c2v_BBDMRunner(DiffusionBaseRunner):
 
         grid_size = 4
 
+        # Generate sample
         sample = net.sample(x_cond, condition=condition, clip_denoised=self.config.testing.clip_denoised).to('cpu')
-        image_grid = get_image_grid(sample[:, :, sample.shape[0]//2, :], grid_size, to_normal=self.config.data.dataset_config.to_normal)
+        
+        # FIXED: Use correct dimension indexing [batch, channel, depth, height, width]
+        depth_slice = sample.shape[2] // 2  # Middle slice along depth dimension
+        image_grid = get_image_grid(sample[:, :, depth_slice, :, :], grid_size, to_normal=self.config.data.dataset_config.to_normal)
         im = Image.fromarray(image_grid)
         im.save(os.path.join(sample_path, 'skip_sample.png'))
         if stage != 'test':
             self.writer.add_image(f'{stage}_skip_sample', image_grid, self.global_step, dataformats='HWC')
 
-        image_grid = get_image_grid(x_cond[:, :, x_cond.shape[0]//2, :].to('cpu'), grid_size, to_normal=self.config.data.dataset_config.to_normal)
+        # Condition (input ULF)
+        depth_slice = x_cond.shape[2] // 2
+        image_grid = get_image_grid(x_cond[:, :, depth_slice, :, :].to('cpu'), grid_size, to_normal=self.config.data.dataset_config.to_normal)
         im = Image.fromarray(image_grid)
         im.save(os.path.join(sample_path, 'condition.png'))
         if stage != 'test':
             self.writer.add_image(f'{stage}_condition', image_grid, self.global_step, dataformats='HWC')
 
-        image_grid = get_image_grid(x[:, :, x.shape[0]//2, :].to('cpu'), grid_size, to_normal=self.config.data.dataset_config.to_normal)
+        # Ground truth (target HF)
+        depth_slice = x.shape[2] // 2
+        image_grid = get_image_grid(x[:, :, depth_slice, :, :].to('cpu'), grid_size, to_normal=self.config.data.dataset_config.to_normal)
         im = Image.fromarray(image_grid)
         im.save(os.path.join(sample_path, 'ground_truth.png'))
         if stage != 'test':
