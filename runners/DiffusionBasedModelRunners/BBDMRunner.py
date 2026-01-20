@@ -13,6 +13,9 @@ from runners.utils import weights_init, get_optimizer, get_dataset, make_dir, ge
 from tqdm.autonotebook import tqdm
 from torchsummary import summary
 import random
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 
 @Registers.runners.register_with_name('c2v_BBDMRunner')
@@ -101,32 +104,88 @@ class c2v_BBDMRunner(DiffusionBaseRunner):
 
         grid_size = 4
 
+        # Debug: Check if model parameters have changed from initialization
+        if stage != 'test' and self.global_step % 1000 == 0:
+            param_sum = sum(p.abs().sum().item() for p in net.parameters())
+            print(f"[Debug] Model parameter sum at step {self.global_step}: {param_sum:.2f}")
+
         # Generate sample
         sample = net.sample(x_cond, condition=condition, clip_denoised=self.config.testing.clip_denoised).to('cpu')
         
         # FIXED: Use correct dimension indexing [batch, channel, depth, height, width]
         depth_slice = sample.shape[2] // 2  # Middle slice along depth dimension
-        image_grid = get_image_grid(sample[:, :, depth_slice, :, :], grid_size, to_normal=self.config.data.dataset_config.to_normal)
-        im = Image.fromarray(image_grid)
-        im.save(os.path.join(sample_path, 'skip_sample.png'))
+        
+        # Move all data to CPU for visualization
+        x_cpu = x.to('cpu')
+        x_cond_cpu = x_cond.to('cpu')
+        sample_cpu = sample
+        
+        # Extract middle slices
+        sample_slice = sample_cpu[:, :, depth_slice, :, :]
+        cond_slice = x_cond_cpu[:, :, depth_slice, :, :]
+        gt_slice = x_cpu[:, :, depth_slice, :, :]
+        
+        # Create individual image grids
+        to_normal = self.config.data.dataset_config.to_normal
+        sample_grid = get_image_grid(sample_slice, grid_size, to_normal=to_normal)
+        cond_grid = get_image_grid(cond_slice, grid_size, to_normal=to_normal)
+        gt_grid = get_image_grid(gt_slice, grid_size, to_normal=to_normal)
+        
+        # Save individual images (backward compatibility)
+        Image.fromarray(sample_grid).save(os.path.join(sample_path, 'generated_sample.png'))
+        Image.fromarray(cond_grid).save(os.path.join(sample_path, 'input_condition.png'))
+        Image.fromarray(gt_grid).save(os.path.join(sample_path, 'ground_truth.png'))
+        
+        # Compute metrics to verify the model is actually generating different outputs
+        mse_cond_sample = torch.nn.functional.mse_loss(sample_slice, cond_slice).item()
+        mse_sample_gt = torch.nn.functional.mse_loss(sample_slice, gt_slice).item()
+        mse_cond_gt = torch.nn.functional.mse_loss(cond_slice, gt_slice).item()
+        
+        # Create side-by-side comparison plot
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        title_text = f'{stage.capitalize()} - Step {self.global_step} | MSE(Cond→Gen)={mse_cond_sample:.4f}, MSE(Gen→GT)={mse_sample_gt:.4f}, MSE(Cond→GT)={mse_cond_gt:.4f}'
+        fig.suptitle(title_text, fontsize=14, fontweight='bold')
+        
+        axes[0].imshow(cond_grid)
+        axes[0].set_title('Input Condition (ULF)', fontsize=14)
+        axes[0].axis('off')
+        
+        axes[1].imshow(sample_grid)
+        axes[1].set_title('Generated Output', fontsize=14)
+        axes[1].axis('off')
+        
+        axes[2].imshow(gt_grid)
+        axes[2].set_title('Ground Truth (HF)', fontsize=14)
+        axes[2].axis('off')
+        
+        plt.tight_layout()
+        comparison_path = os.path.join(sample_path, f'{stage}_comparison.png')
+        plt.savefig(comparison_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Log metrics to tensorboard
         if stage != 'test':
-            self.writer.add_image(f'{stage}_skip_sample', image_grid, self.global_step, dataformats='HWC')
-
-        # Condition (input ULF)
-        depth_slice = x_cond.shape[2] // 2
-        image_grid = get_image_grid(x_cond[:, :, depth_slice, :, :].to('cpu'), grid_size, to_normal=self.config.data.dataset_config.to_normal)
-        im = Image.fromarray(image_grid)
-        im.save(os.path.join(sample_path, 'condition.png'))
+            self.writer.add_scalar(f'{stage}_metrics/mse_condition_to_generated', mse_cond_sample, self.global_step)
+            self.writer.add_scalar(f'{stage}_metrics/mse_generated_to_gt', mse_sample_gt, self.global_step)
+            self.writer.add_scalar(f'{stage}_metrics/mse_condition_to_gt', mse_cond_gt, self.global_step)
+            
+            # Warning if generated output is too similar to input condition
+            if mse_cond_sample < 0.001:
+                print(f"⚠️ WARNING: Generated output is nearly identical to input condition! MSE={mse_cond_sample:.6f}")
+                print(f"   This suggests the model may not be learning or generating properly.")
+                print(f"   Check: 1) Model training progress, 2) Loss values, 3) Sampling parameters")
+        
+        # Log to tensorboard
         if stage != 'test':
-            self.writer.add_image(f'{stage}_condition', image_grid, self.global_step, dataformats='HWC')
-
-        # Ground truth (target HF)
-        depth_slice = x.shape[2] // 2
-        image_grid = get_image_grid(x[:, :, depth_slice, :, :].to('cpu'), grid_size, to_normal=self.config.data.dataset_config.to_normal)
-        im = Image.fromarray(image_grid)
-        im.save(os.path.join(sample_path, 'ground_truth.png'))
-        if stage != 'test':
-            self.writer.add_image(f'{stage}_ground_truth', image_grid, self.global_step, dataformats='HWC')
+            self.writer.add_image(f'{stage}_generated', sample_grid, self.global_step, dataformats='HWC')
+            self.writer.add_image(f'{stage}_condition', cond_grid, self.global_step, dataformats='HWC')
+            self.writer.add_image(f'{stage}_ground_truth', gt_grid, self.global_step, dataformats='HWC')
+            
+            # Also log the comparison figure
+            comparison_img = plt.imread(comparison_path)
+            if comparison_img.dtype == np.float32 or comparison_img.dtype == np.float64:
+                comparison_img = (comparison_img * 255).astype(np.uint8)
+            self.writer.add_image(f'{stage}_comparison', comparison_img, self.global_step, dataformats='HWC')
 
     
     @torch.no_grad()
